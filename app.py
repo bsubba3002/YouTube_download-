@@ -1,118 +1,183 @@
-from flask import Flask, request, render_template_string
-import yt_dlp
+from flask import Flask, request, render_template_string, send_from_directory, url_for
+import os
+import cv2
 
 app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['FRAMES_FOLDER'] = 'frames'
 
-HTML_FORM = '''
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs(app.config['FRAMES_FOLDER'], exist_ok=True)
+
+HTML = '''
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>YouTube Video Downloader</title>
+    <title>🎞️ Video to Frames Converter</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
     <style>
         body {
-            background: #121212;
-            color: #eee;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f8f9fa;
+            min-height: 100vh;
             display: flex;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
-            height: 100vh;
-            margin: 0;
-            padding: 0 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 2rem;
         }
         .container {
-            background: #1e1e1e;
-            padding: 30px 40px;
+            max-width: 700px;
+            background: white;
+            padding: 2.5rem 2rem;
             border-radius: 12px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.6);
-            max-width: 450px;
-            width: 100%;
+            box-shadow: 0 8px 24px rgb(0 0 0 / 0.1);
+        }
+        h1 {
+            font-weight: 700;
+            color: #0d6efd;
+            margin-bottom: 1.5rem;
             text-align: center;
         }
-        h2 {
-            margin-bottom: 24px;
-            font-weight: 700;
-            letter-spacing: 1.2px;
-            color: #ffcc00;
-        }
-        input[type="text"] {
+        .btn-primary {
             width: 100%;
-            padding: 14px 16px;
-            font-size: 1rem;
-            border-radius: 8px;
-            border: none;
-            margin-bottom: 18px;
-            background: #2c2c2c;
-            color: #eee;
-            box-sizing: border-box;
-            outline: none;
-            transition: background 0.3s ease;
-        }
-        input[type="text"]:focus {
-            background: #3d3d3d;
-        }
-        input[type="submit"] {
-            background: #ffcc00;
-            border: none;
-            color: #121212;
-            font-weight: 700;
             font-size: 1.1rem;
-            padding: 14px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: background 0.3s ease;
-            width: 100%;
-        }
-        input[type="submit"]:hover {
-            background: #e6b800;
-        }
-        p.message {
-            margin-top: 20px;
             font-weight: 600;
-            font-size: 1rem;
-            color: #90ee90; /* green */
+            padding: 0.75rem;
+            border-radius: 8px;
+            transition: background-color 0.3s ease;
         }
-        p.error {
-            color: #ff4c4c; /* red */
+        .btn-primary:hover {
+            background-color: #0b5ed7;
         }
-        @media (max-width: 500px) {
-            .container {
-                padding: 20px;
-            }
-            input[type="text"], input[type="submit"] {
-                font-size: 1rem;
-            }
+        .message {
+            margin-top: 1.5rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+            text-align: center;
+        }
+        .message.success {
+            color: #198754;
+        }
+        .message.error {
+            color: #dc3545;
+        }
+        ul.frames-list {
+            list-style-type: none;
+            padding-left: 0;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 1rem;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: #fefefe;
+        }
+        ul.frames-list li {
+            padding: 0.5rem 1rem;
+            border-bottom: 1px solid #eee;
+        }
+        ul.frames-list li:last-child {
+            border-bottom: none;
+        }
+        ul.frames-list li a {
+            color: #0d6efd;
+            text-decoration: none;
+            word-break: break-all;
+        }
+        ul.frames-list li a:hover {
+            text-decoration: underline;
+        }
+        footer {
+            margin-top: 3rem;
+            color: #6c757d;
+            font-size: 0.9rem;
+            text-align: center;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h2>YouTube Video Downloader</h2>
-        <form method="POST">
-            <input type="text" name="url" placeholder="Enter YouTube video URL" required>
-            <input type="submit" value="Download">
+    <div class="container shadow-sm">
+        <h1>🎞️ Video to Frames Converter</h1>
+        <form method="POST" enctype="multipart/form-data" novalidate>
+            <div class="mb-3">
+                <label for="video" class="form-label">Select a video file</label>
+                <input class="form-control" type="file" id="video" name="video" accept="video/*" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Convert to Frames</button>
         </form>
+
         {% if message %}
-            <p class="message {{ 'error' if 'Error' in message else '' }}">{{ message }}</p>
+            <p class="message success">{{ message }}</p>
+            <h5>Extracted Frames:</h5>
+            <ul class="frames-list">
+                {% for frame in frames %}
+                    <li><a href="{{ url_for('frame_file', filename=frame) }}" target="_blank">{{ frame }}</a></li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+        {% if error %}
+            <p class="message error">{{ error }}</p>
         {% endif %}
     </div>
+    <footer>
+        &copy; 2025 YourAppName. Made with ❤️ using Flask & OpenCV.
+    </footer>
 </body>
 </html>
 '''
 
+def extract_frames(video_path, frames_folder):
+    cap = cv2.VideoCapture(video_path)
+    count = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        filename = os.path.join(frames_folder, f'frame_{count:05d}.jpg')
+        cv2.imwrite(filename, frame)
+        count += 1
+    cap.release()
+    return count
+
+@app.route('/frames/<filename>')
+def frame_file(filename):
+    # Serve the extracted frames
+    return send_from_directory(app.config['FRAMES_FOLDER'], filename)
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    message = ""
+    message = None
+    error = None
+    frames = []
+
     if request.method == 'POST':
-        url = request.form.get('url')
+        if 'video' not in request.files:
+            error = "Please upload a video file."
+            return render_template_string(HTML, error=error)
+        
+        video_file = request.files['video']
+        if video_file.filename == '':
+            error = "No file selected."
+            return render_template_string(HTML, error=error)
+        
         try:
-            yt_dlp.YoutubeDL().download([url])
-            message = "✅ Video downloaded successfully!"
+            video_path = os.path.join(app.config['UPLOAD_FOLDER'], video_file.filename)
+            video_file.save(video_path)
+
+            # Clear old frames
+            for f in os.listdir(app.config['FRAMES_FOLDER']):
+                os.remove(os.path.join(app.config['FRAMES_FOLDER'], f))
+
+            total_frames = extract_frames(video_path, app.config['FRAMES_FOLDER'])
+            frames = sorted(os.listdir(app.config['FRAMES_FOLDER']))
+
+            message = f"✅ Done! Extracted {total_frames} frames."
         except Exception as e:
-            message = f"❌ Error: {e}"
-    return render_template_string(HTML_FORM, message=message)
+            error = f"❌ Error processing video: {e}"
+
+    return render_template_string(HTML, message=message, error=error, frames=frames)
 
 if __name__ == '__main__':
     app.run(debug=True)
